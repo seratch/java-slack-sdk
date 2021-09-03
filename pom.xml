@@ -27,6 +27,7 @@
         <module>bolt-ktor</module>
         <module>bolt-http4k</module>
         <module>bolt-helidon</module>
+        <module>bolt-tester</module>
         <module>bolt-spring-boot-examples</module>
         <module>bolt-kotlin-examples</module>
         <module>bolt-quarkus-examples</module>
