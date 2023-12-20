@@ -1138,4 +1138,41 @@ public class files_Test {
         FilesInfoResponse file1info = client.filesInfo(r -> r.file(file1Upload.getFileId()));
         assertThat(file1info.getFile().getShares().getPublicChannels().get(randomChannelId), is(notNullValue()));
     }
+
+    @Test
+    public void v2_async() throws IOException, SlackApiException {
+        MethodsClient client = slack.methods(userToken);
+        File file = new File("src/test/resources/slack-logo.gif");
+        byte[] fileData = Files.readAllBytes(Paths.get(file.toURI()));
+        FilesUploadV2Request.UploadFile uploadFile = FilesUploadV2Request.UploadFile.builder().fileData(fileData).build();
+        FilesUploadV2Response upload = client.filesUploadV2(r -> r
+                .uploadFiles(Arrays.asList(uploadFile, uploadFile))
+                .channel(channelId)
+        );
+        assertThat(upload.getError(), is(nullValue()));
+        assertThat(upload.getFiles().size(), is(2));
+        assertThat(upload.getFiles().get(0).getMimetype(), is(""));
+        assertThat(upload.getFiles().get(0).getShares().getPublicChannels(), is(nullValue()));
+        assertThat(upload.getFiles().get(1).getMimetype(), is(""));
+        assertThat(upload.getFiles().get(1).getShares().getPublicChannels(), is(nullValue()));
+    }
+    @Test
+    public void v2_sync() throws IOException, SlackApiException {
+        MethodsClient client = slack.methods(userToken);
+        File file = new File("src/test/resources/slack-logo.gif");
+        byte[] fileData = Files.readAllBytes(Paths.get(file.toURI()));
+        FilesUploadV2Request.UploadFile uploadFile = FilesUploadV2Request.UploadFile.builder().fileData(fileData).build();
+        FilesUploadV2Response upload = client.filesUploadV2(r -> r
+                .uploadFiles(Arrays.asList(uploadFile, uploadFile))
+                .asyncCompletion(false)
+                .channel(channelId)
+        );
+        assertThat(upload.getError(), is(nullValue()));
+        assertThat(upload.getFiles().size(), is(2));
+        assertThat(upload.getFiles().get(0).getMimetype(), is("image/gif"));
+        assertThat(upload.getFiles().get(0).getShares().getPublicChannels().get(channelId), is(notNullValue()));
+        assertThat(upload.getFiles().get(1).getMimetype(), is("image/gif"));
+        assertThat(upload.getFiles().get(1).getShares().getPublicChannels().get(channelId), is(notNullValue()));
+    }
+
 }

@@ -25,4 +25,5 @@ public class SlackFilesUploadV2Exception extends RuntimeException {
     private final Map<String, FilesUploadV2Response.UploadResponse> uploadResponses = new HashMap<>();
     private FilesCompleteUploadExternalResponse completeResponse;
     private final List<FilesInfoResponse> fileInfoResponses = new ArrayList<>();
+    private Exception cause;
 }

@@ -8,7 +8,9 @@ import com.slack.api.methods.request.files.FilesGetUploadURLExternalRequest;
 import com.slack.api.methods.request.files.FilesUploadV2Request;
 import com.slack.api.methods.response.files.FilesCompleteUploadExternalResponse;
 import com.slack.api.methods.response.files.FilesGetUploadURLExternalResponse;
+import com.slack.api.methods.response.files.FilesInfoResponse;
 import com.slack.api.methods.response.files.FilesUploadV2Response;
+import com.slack.api.model.File;
 import com.slack.api.util.http.SlackHttpClient;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +22,11 @@ import okhttp3.Response;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+
+import static java.util.stream.Collectors.toSet;
 
 @Data
 @Slf4j
@@ -110,6 +116,65 @@ public class FilesUploadV2Helper implements AutoCloseable {
         result.getUploadResponses().putAll(underlyingException.getUploadResponses());
         result.getFileInfoResponses().addAll(underlyingException.getFileInfoResponses());
         result.setCompleteResponse(response);
+
+        if (!v2Request.isAsyncCompletion()) {
+            // When asyncCompletion is set to false, this method blocks the current thread
+            // until the server-side completes the file upload.
+
+            if (v2Request.getChannel() != null) {
+                String channelId = v2Request.getChannel();
+                int numOfAttempts = 0;
+                int numOfFiles = response.getFiles().size();
+                try {
+                    Set<String> fileIds = response.getFiles().stream().map(File::getId).collect(toSet());
+                    Set<String> completedFileIds = new HashSet<>();
+                    while (completedFileIds.size() != fileIds.size()
+                            // Just to avoid infinite loop
+                            && numOfAttempts < 100) {
+                        // Block this thread until the server-side operations complete
+                        for (int i = 0; i < numOfFiles; i++) {
+                            File currentFile = response.getFiles().get(i);
+                            if (completedFileIds.contains(currentFile.getId())) {
+                                continue;
+                            }
+                            FilesInfoResponse fileInfo = this.client.filesInfo(r -> r.file(currentFile.getId()));
+                            File updatedFile = fileInfo.getFile();
+                            if (updatedFile.getShares() != null) {
+                                if (updatedFile.getShares().getPublicChannels() != null
+                                        && updatedFile.getShares().getPublicChannels().containsKey(channelId)) {
+                                    response.getFiles().set(i, updatedFile);
+                                    completedFileIds.add(updatedFile.getId());
+                                    continue;
+                                }
+                                if (updatedFile.getShares().getPrivateChannels() != null
+                                        && updatedFile.getShares().getPrivateChannels().containsKey(channelId)) {
+                                    response.getFiles().set(i, updatedFile);
+                                    completedFileIds.add(updatedFile.getId());
+                                }
+                            }
+                        }
+                        // files.info API: Web API Tier 4 (100+ per minute)
+                        // https://api.slack.com/apis/rate-limits#tier_t4
+                        long millis = 200L + (numOfAttempts * 100L);
+                        log.debug("Sleep for {} milliseconds until the next attempt of files.info API call", millis);
+                        Thread.sleep(millis);
+                        numOfAttempts++;
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to wait for the Slack server to complete uploading files (error: {})",
+                            e.getMessage(), e);
+                    underlyingException.setCause(e);
+                    throw underlyingException;
+                }
+            } else {
+                // Note that this option can be ignored when the channelId to share is not passed
+                // because the files are not yet shared with anyone else in the scenario.
+                String warningMessage =
+                        "You passed asyncCompletion=false to filesUploadV2 method but the option was ignored " +
+                        "because you didn't pass the channel ID to share the files.";
+                log.warn(warningMessage);
+            }
+        }
         return result;
     }
 

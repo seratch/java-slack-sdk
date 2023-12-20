@@ -80,6 +80,14 @@ public class FilesUploadV2Request implements SlackApiRequest {
     @Builder.Default
     private boolean requestFileInfo = true;
 
+    /**
+     * The process to upload files on the server-side could be done asynchronously.
+     * If a developer sets this flag to false, this method blocks the current thread
+     * until the completion of the full upload operations.
+     */
+    @Builder.Default
+    private boolean asyncCompletion = true;
+
     @Data
     @Builder
     @NoArgsConstructor
