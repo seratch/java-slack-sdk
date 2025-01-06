@@ -164,14 +164,24 @@ public class Slack implements AutoCloseable {
         return socketMode(appToken, SocketModeClient.Backend.Tyrus);
     }
 
-    public SocketModeClient socketMode(String appToken, SocketModeClient.Backend backend) throws IOException {
+    public SocketModeClient socketMode(
+            String appToken,
+            SocketModeClient.Backend backend) throws IOException {
+        return socketMode(appToken, backend, SocketModeClient.MessageProcessor.Default);
+
+    }
+
+    public SocketModeClient socketMode(
+            String appToken,
+            SocketModeClient.Backend backend,
+            SocketModeClient.MessageProcessor messageProcessor) throws IOException {
         String url = issueSocketModeUrl(appToken);
         try {
             switch (backend) {
                 case JavaWebSocket:
-                    return new SocketModeClientJavaWSImpl(this, appToken, url);
+                    return new SocketModeClientJavaWSImpl(this, messageProcessor, appToken, url);
                 default:
-                    return new SocketModeClientTyrusImpl(this, appToken, url);
+                    return new SocketModeClientTyrusImpl(this, messageProcessor, appToken, url);
             }
         } catch (URISyntaxException e) {
             String message = "Failed to connect to the Socket Mode API endpoint. (message: " + e.getMessage() + ")";

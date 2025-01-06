@@ -45,7 +45,7 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
     private boolean autoReconnectEnabled;
     private boolean autoReconnectOnCloseEnabled;
     private SocketModeMessageQueue messageQueue;
-    private ScheduledExecutorService messageProcessorExecutor;
+    private ExecutorService messageProcessorExecutor;
     private boolean sessionMonitorEnabled;
     private Optional<ScheduledExecutorService> sessionMonitorExecutor;
     private AtomicReference<String> latestPong = new AtomicReference<>();
@@ -81,7 +81,15 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
             Slack slack,
             String appToken,
             String wssUrl) throws URISyntaxException {
-        this(slack, appToken, wssUrl, DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY);
+        this(slack, appToken, wssUrl, SocketModeClient.getConcurrency(null));
+    }
+
+    public SocketModeClientTyrusImpl(
+            Slack slack,
+            MessageProcessor messageProcessor,
+            String appToken,
+            String wssUrl) throws URISyntaxException {
+        this(slack, messageProcessor, appToken, wssUrl,  SocketModeClient.getConcurrency(messageProcessor));
     }
 
     public SocketModeClientTyrusImpl(
@@ -90,8 +98,19 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
             String wssUrl,
             int concurrency
     ) throws URISyntaxException {
+        this(slack, MessageProcessor.Default, appToken, wssUrl, concurrency);
+    }
+
+    public SocketModeClientTyrusImpl(
+            Slack slack,
+            MessageProcessor messageProcessor,
+            String appToken,
+            String wssUrl,
+            int concurrency
+    ) throws URISyntaxException {
         this(
                 slack,
+                messageProcessor,
                 appToken,
                 wssUrl,
                 concurrency,
@@ -104,6 +123,31 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
 
     public SocketModeClientTyrusImpl(
             Slack slack,
+            String appToken,
+            String wssUrl,
+            int concurrency,
+            SocketModeMessageQueue messageQueue,
+            boolean autoReconnectEnabled,
+            boolean sessionMonitorEnabled,
+            long sessionMonitorIntervalMillis
+    ) throws URISyntaxException {
+        this(
+                slack,
+                MessageProcessor.Default,
+                appToken,
+                wssUrl,
+                concurrency,
+                messageQueue,
+                autoReconnectEnabled,
+                sessionMonitorEnabled,
+                sessionMonitorIntervalMillis
+        );
+
+    }
+
+    public SocketModeClientTyrusImpl(
+            Slack slack,
+            MessageProcessor messageProcessor,
             String appToken,
             String wssUrl,
             int concurrency,
@@ -126,7 +170,7 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
         setAutoReconnectOnCloseEnabled(false);
         setSessionMonitorEnabled(sessionMonitorEnabled);
         initializeSessionMonitorExecutor(sessionMonitorIntervalMillis);
-        initializeMessageProcessorExecutor(concurrency);
+        initializeMessageProcessorExecutor(concurrency, messageProcessor);
         sessionCleanerExecutor = slack.getConfig()
                 .getExecutorServiceProvider()
                 .createThreadPoolExecutor(getExecutorGroupNamePrefix() + "-session-cleaner", 3);
@@ -388,12 +432,12 @@ public class SocketModeClientTyrusImpl implements SocketModeClient {
     }
 
     @Override
-    public ScheduledExecutorService getMessageProcessorExecutor() {
+    public ExecutorService getMessageProcessorExecutor() {
         return this.messageProcessorExecutor;
     }
 
     @Override
-    public void setMessageProcessorExecutor(ScheduledExecutorService executorService) {
+    public void setMessageProcessorExecutor(ExecutorService executorService) {
         this.messageProcessorExecutor = executorService;
     }
 

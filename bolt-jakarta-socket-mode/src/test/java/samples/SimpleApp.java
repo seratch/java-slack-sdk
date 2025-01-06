@@ -10,6 +10,7 @@ import com.slack.api.model.event.MessageChangedEvent;
 import com.slack.api.model.event.MessageDeletedEvent;
 import com.slack.api.model.event.MessageEvent;
 import com.slack.api.model.view.ViewState;
+import com.slack.api.socket_mode.SocketModeClient;
 import config.Constants;
 
 import java.util.Arrays;
@@ -347,7 +348,7 @@ public class SimpleApp {
         });
 
         String appToken = System.getenv(Constants.SLACK_SDK_TEST_SOCKET_MODE_APP_TOKEN);
-        SocketModeApp socketModeApp = new SocketModeApp(appToken, app);
+        SocketModeApp socketModeApp = new SocketModeApp(appToken, app, SocketModeClient.MessageProcessor.Fast);
         socketModeApp.start();
     }
 }

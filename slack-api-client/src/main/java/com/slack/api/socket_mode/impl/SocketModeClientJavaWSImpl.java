@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -43,7 +44,7 @@ public class SocketModeClientJavaWSImpl implements SocketModeClient {
     private boolean autoReconnectEnabled;
     private boolean autoReconnectOnCloseEnabled;
     private SocketModeMessageQueue messageQueue;
-    private ScheduledExecutorService messageProcessorExecutor;
+    private ExecutorService messageProcessorExecutor;
     private boolean sessionMonitorEnabled;
     private Optional<ScheduledExecutorService> sessionMonitorExecutor;
 
@@ -70,7 +71,15 @@ public class SocketModeClientJavaWSImpl implements SocketModeClient {
             Slack slack,
             String appToken,
             String wssUrl) throws URISyntaxException {
-        this(slack, appToken, wssUrl, DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY);
+        this(slack, appToken, wssUrl, SocketModeClient.getConcurrency(null));
+    }
+
+    public SocketModeClientJavaWSImpl(
+            Slack slack,
+            MessageProcessor messageProcessor,
+            String appToken,
+            String wssUrl) throws URISyntaxException {
+        this(slack, messageProcessor, appToken, wssUrl, SocketModeClient.getConcurrency(messageProcessor));
     }
 
     public SocketModeClientJavaWSImpl(
@@ -93,6 +102,50 @@ public class SocketModeClientJavaWSImpl implements SocketModeClient {
 
     public SocketModeClientJavaWSImpl(
             Slack slack,
+            MessageProcessor messageProcessor,
+            String appToken,
+            String wssUrl,
+            int concurrency
+    ) throws URISyntaxException {
+        this(
+                slack,
+                messageProcessor,
+                appToken,
+                wssUrl,
+                concurrency,
+                new ConcurrentLinkedMessageQueue(),
+                true,
+                true,
+                DEFAULT_SESSION_MONITOR_INTERVAL_MILLISECONDS
+        );
+    }
+
+    public SocketModeClientJavaWSImpl(
+            Slack slack,
+            String appToken,
+            String wssUrl,
+            int concurrency,
+            SocketModeMessageQueue messageQueue,
+            boolean autoReconnectEnabled,
+            boolean sessionMonitorEnabled,
+            long sessionMonitorIntervalMillis
+    ) throws URISyntaxException {
+        this(
+                slack,
+                MessageProcessor.Default,
+                appToken,
+                wssUrl,
+                concurrency,
+                messageQueue,
+                autoReconnectEnabled,
+                sessionMonitorEnabled,
+                sessionMonitorIntervalMillis
+        );
+    }
+
+    public SocketModeClientJavaWSImpl(
+            Slack slack,
+            MessageProcessor messageProcessor,
             String appToken,
             String wssUrl,
             int concurrency,
@@ -115,7 +168,7 @@ public class SocketModeClientJavaWSImpl implements SocketModeClient {
         setAutoReconnectOnCloseEnabled(false);
         setSessionMonitorEnabled(sessionMonitorEnabled);
         initializeSessionMonitorExecutor(sessionMonitorIntervalMillis);
-        initializeMessageProcessorExecutor(concurrency);
+        initializeMessageProcessorExecutor(concurrency, messageProcessor);
         this.currentSession = new UnderlyingWebSocketSession(getWssUri(), this);
     }
 
@@ -379,12 +432,12 @@ public class SocketModeClientJavaWSImpl implements SocketModeClient {
     }
 
     @Override
-    public ScheduledExecutorService getMessageProcessorExecutor() {
+    public ExecutorService getMessageProcessorExecutor() {
         return this.messageProcessorExecutor;
     }
 
     @Override
-    public void setMessageProcessorExecutor(ScheduledExecutorService executorService) {
+    public void setMessageProcessorExecutor(ExecutorService executorService) {
         this.messageProcessorExecutor = executorService;
     }
 
