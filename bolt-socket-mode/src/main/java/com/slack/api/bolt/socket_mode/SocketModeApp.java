@@ -69,11 +69,12 @@ public class SocketModeApp {
             App app,
             String appToken,
             SocketModeClient.Backend backend,
+            SocketModeClient.MessageProcessor messageProcessor,
             Function<ErrorContext, Response> errorHandler
     ) {
         return () -> {
             try {
-                final SocketModeClient client = app.slack().socketMode(appToken, backend);
+                final SocketModeClient client = app.slack().socketMode(appToken, backend, messageProcessor);
                 final SocketModeRequestParser requestParser = new SocketModeRequestParser(app.config());
                 final Gson gson = GsonFactory.createSnakeCase(app.slack().getConfig());
                 client.addWebSocketMessageListener(message -> {
@@ -112,8 +113,16 @@ public class SocketModeApp {
         this(System.getenv("SLACK_APP_TOKEN"), SocketModeClient.Backend.Tyrus, app);
     }
 
+    public SocketModeApp(App app, SocketModeClient.MessageProcessor messageProcessor) throws IOException {
+        this(System.getenv("SLACK_APP_TOKEN"), SocketModeClient.Backend.Tyrus, messageProcessor, app);
+    }
+
     public SocketModeApp(String appToken, App app) throws IOException {
         this(appToken, SocketModeClient.Backend.Tyrus, app);
+    }
+
+    public SocketModeApp(String appToken, App app, SocketModeClient.MessageProcessor messageProcessor) throws IOException {
+        this(appToken, SocketModeClient.Backend.Tyrus, messageProcessor, app);
     }
 
     public SocketModeApp(
@@ -122,6 +131,15 @@ public class SocketModeApp {
             App app
     ) throws IOException {
         this(appToken, backend, DEFAULT_ERROR_HANDLER, app);
+    }
+
+    public SocketModeApp(
+            String appToken,
+            SocketModeClient.Backend backend,
+            SocketModeClient.MessageProcessor messageProcessor,
+            App app
+    ) throws IOException {
+        this(appToken, backend, messageProcessor, DEFAULT_ERROR_HANDLER, app);
     }
 
     public SocketModeApp(
@@ -138,7 +156,17 @@ public class SocketModeApp {
             Function<ErrorContext, Response> errorHandler,
             App app
     ) throws IOException {
-        this(buildSocketModeClientFactory(app, appToken, backend, errorHandler), app);
+        this(appToken, backend, SocketModeClient.MessageProcessor.Default, errorHandler, app);
+    }
+
+    public SocketModeApp(
+            String appToken,
+            SocketModeClient.Backend backend,
+            SocketModeClient.MessageProcessor messageProcessor,
+            Function<ErrorContext, Response> errorHandler,
+            App app
+    ) throws IOException {
+        this(buildSocketModeClientFactory(app, appToken, backend, messageProcessor, errorHandler), app);
     }
 
     public SocketModeApp(
@@ -147,7 +175,17 @@ public class SocketModeApp {
             SocketModeClient.Backend backend,
             Function<ErrorContext, Response> errorHandler
     ) throws IOException {
-        this(buildSocketModeClientFactory(app, appToken, backend, errorHandler), app);
+        this(appToken, app, backend, SocketModeClient.MessageProcessor.Default, errorHandler);
+    }
+
+    public SocketModeApp(
+            String appToken,
+            App app,
+            SocketModeClient.Backend backend,
+            SocketModeClient.MessageProcessor messageProcessor,
+            Function<ErrorContext, Response> errorHandler
+    ) throws IOException {
+        this(buildSocketModeClientFactory(app, appToken, backend, messageProcessor, errorHandler), app);
     }
 
     public SocketModeApp(Supplier<SocketModeClient> clientFactory, App app) {

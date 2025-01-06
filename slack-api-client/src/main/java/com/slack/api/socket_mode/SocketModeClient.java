@@ -15,6 +15,8 @@ import com.slack.api.socket_mode.request.InteractiveEnvelope;
 import com.slack.api.socket_mode.request.SlashCommandsEnvelope;
 import com.slack.api.socket_mode.response.SocketModeResponse;
 import com.slack.api.util.json.GsonFactory;
+import lombok.Builder;
+import lombok.Data;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,6 +26,8 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -34,7 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public interface SocketModeClient extends Closeable {
 
     /**
-     * Built-in backend supports. The default os Tyrus.
+     * Built-in backend supports. The default is Tyrus.
      */
     enum Backend {
         /**
@@ -45,6 +49,76 @@ public interface SocketModeClient extends Closeable {
          * org.java-websocket:Java-WebSocket
          */
         JavaWebSocket
+    }
+
+    /**
+     * You can switch the message processor mechanism when further optimization is necessary.
+     * The default one works well as long as your listener functions return the ack() response promptly.
+     * If your listeners synchronously perform time-consuming tasks, it can result in slower message processing
+     * because the processor executes your listeners synchronously,
+     * and subsequent retrievals may have to wait until the previous one completes.
+     * <p>
+     * The new Fast mode can mitigate this performance issue, but if all your listeners synchronously take a few seconds,
+     * even the Fast mode can be slow.
+     * <p>
+     * The best practice is to move all time-consuming tasks to `app.executorService().submit(() -> your code here)`
+     * within your listener and return `ack()` immediately.
+     * With this approach, both Default and Fast modes generally perform similarly.
+     */
+    enum MessageProcessorMode {
+        /**
+         * Default implementation. As long as your listeners immediately returns ack() and
+         * move all time-consuming tasks to `app.executorService().submit(() -> your code here)`,
+         * this mode works without any issues.
+         */
+        Default,
+        /**
+         * The new, faster implementation consistently works more quickly, but it's still in beta.
+         * As mentioned in the previous comment, this one does not help
+         * if all your listeners take time before returning ack().
+         */
+        Fast,
+    }
+
+    static int getConcurrency(MessageProcessor messageProcessor) {
+        if (messageProcessor != null && messageProcessor.getConcurrency() != null) {
+            return messageProcessor.getConcurrency();
+        } else {
+            return DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY;
+        }
+    }
+
+    @Data
+    @Builder
+    class MessageProcessor {
+
+        /**
+         * You can switch the underlying implementation from the default one to the new faster one.
+         */
+        private MessageProcessorMode mode = MessageProcessorMode.Default;
+
+        /**
+         * The interval (milliseconds) between the message retrieval in each worker thread.
+         */
+        private long intervalMillis;
+
+        /**
+         * The concurrency of the message processor.
+         */
+        private Integer concurrency;
+
+        public static MessageProcessor Default = MessageProcessor.builder()
+                .mode(MessageProcessorMode.Default)
+                .intervalMillis(10L)
+                .concurrency(DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY)
+                .build();
+
+        public static MessageProcessor Fast = MessageProcessor.builder()
+                .mode(MessageProcessorMode.Fast)
+                // Making this value even smaller can cause busier threads, but it's developer's choice
+                .intervalMillis(50L)
+                .concurrency(DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY)
+                .build();
     }
 
     /**
@@ -145,32 +219,64 @@ public interface SocketModeClient extends Closeable {
 
     void setMessageQueue(SocketModeMessageQueue messageQueue);
 
-    ScheduledExecutorService getMessageProcessorExecutor();
+    ExecutorService getMessageProcessorExecutor();
 
-    void setMessageProcessorExecutor(ScheduledExecutorService executorService);
+    void setMessageProcessorExecutor(ExecutorService executorService);
 
     int DEFAULT_MESSAGE_PROCESSOR_CONCURRENCY = 10;
 
-    default void initializeMessageProcessorExecutor(int concurrency) {
+    default void initializeMessageProcessorExecutor(int concurrency, MessageProcessor mp) {
         String processorName = getExecutorGroupNamePrefix() + "-message-processor";
-        ScheduledExecutorService messageProcessorExecutor = getSlack()
-                .getConfig()
-                .getExecutorServiceProvider()
-                .createThreadScheduledExecutor(processorName);
-        for (int i = 0; i < concurrency; i++) {
-            int num = i;
-            messageProcessorExecutor.scheduleAtFixedRate(() -> {
-                try {
-                    String message = getMessageQueue().poll();
-                    if (message != null) {
-                        processMessage(message);
+        if (mp == null || mp.getMode().equals(MessageProcessorMode.Default)) {
+            long interval = mp != null && mp.getIntervalMillis() > 0 ? mp.getIntervalMillis() : 10L;
+            getLogger().debug("Initializing MessageProcessor (mode: {}, concurrency: {}, interval: {} millis)",
+                    MessageProcessorMode.Default, concurrency, interval);
+            ScheduledExecutorService messageProcessorExecutor = getSlack()
+                    .getConfig()
+                    .getExecutorServiceProvider()
+                    .createThreadScheduledExecutor(processorName);
+            for (int i = 0; i < concurrency; i++) {
+                messageProcessorExecutor.scheduleAtFixedRate(() -> {
+                    try {
+                        String message = getMessageQueue().poll();
+                        if (message != null) {
+                            processMessage(message);
+                        }
+                    } catch (Exception e) {
+                        getLogger().error("Failed to poll a message or run processMessage (error: {})", e.getMessage(), e);
                     }
-                } catch (Exception e) {
-                    getLogger().error("Failed to poll a message or run processMessage (error: {})", e.getMessage(), e);
-                }
-            }, 0, 10, TimeUnit.MILLISECONDS);
+                }, 0, interval, TimeUnit.MILLISECONDS);
+            }
+            setMessageProcessorExecutor(messageProcessorExecutor);
+        } else {
+            long interval = mp.getIntervalMillis() > 0 ? mp.getIntervalMillis() : 50L;
+            getLogger().debug("Initializing MessageProcessor (mode: {}, concurrency: {}, interval: {} millis)",
+                    mp.getMode(), concurrency, interval);
+            ExecutorService messageProcessorExecutor = getSlack()
+                    .getConfig()
+                    .getExecutorServiceProvider()
+                    .createThreadPoolExecutor(processorName, concurrency);
+            for (int i = 0; i < concurrency; i++) {
+                messageProcessorExecutor.execute(() -> {
+                    while (true) {
+                        try {
+                            String message = getMessageQueue().poll();
+                            if (message != null) {
+                                processMessage(message);
+                            }
+                        } catch (Exception e) {
+                            getLogger().error("Failed to poll a message or run processMessage (error: {})", e.getMessage(), e);
+                        }
+                        try {
+                            Thread.sleep(interval);
+                        } catch (InterruptedException e) {
+                            throw new RejectedExecutionException(e);
+                        }
+                    }
+                });
+            }
+            setMessageProcessorExecutor(messageProcessorExecutor);
         }
-        setMessageProcessorExecutor(messageProcessorExecutor);
     }
 
     long DEFAULT_SESSION_MONITOR_INTERVAL_MILLISECONDS = 5_000L;

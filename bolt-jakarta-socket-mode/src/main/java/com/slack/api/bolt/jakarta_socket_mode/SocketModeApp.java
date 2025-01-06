@@ -68,12 +68,13 @@ public class SocketModeApp {
 
     private static Supplier<SocketModeClient> buildSocketModeClientFactory(
             App app,
+            SocketModeClient.MessageProcessor messageProcessor,
             String appToken,
             Function<ErrorContext, Response> errorHandler
     ) {
         return () -> {
             try {
-                final SocketModeClient client = JakartaSocketModeClientFactory.create(app.slack(), appToken);
+                final SocketModeClient client = JakartaSocketModeClientFactory.create(app.slack(), messageProcessor, appToken);
                 final SocketModeRequestParser requestParser = new SocketModeRequestParser(app.config());
                 final Gson gson = GsonFactory.createSnakeCase(app.slack().getConfig());
                 client.addWebSocketMessageListener(message -> {
@@ -112,6 +113,15 @@ public class SocketModeApp {
         this(System.getenv("SLACK_APP_TOKEN"), app);
     }
 
+    public SocketModeApp(App app, SocketModeClient.MessageProcessor messageProcessor) throws IOException {
+        this(System.getenv("SLACK_APP_TOKEN"), app, messageProcessor);
+    }
+
+
+    public SocketModeApp(String appToken, App app, SocketModeClient.MessageProcessor messageProcessor) throws IOException {
+        this(appToken, messageProcessor, DEFAULT_ERROR_HANDLER, app);
+    }
+
 
     public SocketModeApp(String appToken, App app) throws IOException {
         this(appToken, DEFAULT_ERROR_HANDLER, app);
@@ -122,15 +132,25 @@ public class SocketModeApp {
             Function<ErrorContext, Response> errorHandler,
             App app
     ) throws IOException {
-        this(buildSocketModeClientFactory(app, appToken, errorHandler), app);
+        this(buildSocketModeClientFactory(app, SocketModeClient.MessageProcessor.Default, appToken, errorHandler), app);
+    }
+
+    public SocketModeApp(
+            String appToken,
+            SocketModeClient.MessageProcessor messageProcessor,
+            Function<ErrorContext, Response> errorHandler,
+            App app
+    ) throws IOException {
+        this(buildSocketModeClientFactory(app, messageProcessor, appToken, errorHandler), app);
     }
 
     public SocketModeApp(
             String appToken,
             App app,
-            Function<ErrorContext, Response> errorHandler
+            Function<ErrorContext, Response> errorHandler,
+            SocketModeClient.MessageProcessor messageProcessor
     ) throws IOException {
-        this(buildSocketModeClientFactory(app, appToken, errorHandler), app);
+        this(buildSocketModeClientFactory(app, messageProcessor, appToken, errorHandler), app);
     }
 
     public SocketModeApp(Supplier<SocketModeClient> clientFactory, App app) {

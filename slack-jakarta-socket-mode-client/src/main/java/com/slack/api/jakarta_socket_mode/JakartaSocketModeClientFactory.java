@@ -18,9 +18,13 @@ public class JakartaSocketModeClientFactory {
     }
 
     public static SocketModeClient create(Slack slack, String appToken) throws IOException {
+        return create(slack , SocketModeClient.MessageProcessor.Default, appToken);
+    }
+
+    public static SocketModeClient create(Slack slack, SocketModeClient.MessageProcessor messageProcessor, String appToken) throws IOException {
         String url = issueSocketModeUrl(slack, appToken);
         try {
-            return new JakartaSocketModeClientTyrusImpl(slack, appToken, url);
+            return new JakartaSocketModeClientTyrusImpl(slack, messageProcessor, appToken, url);
         } catch (URISyntaxException e) {
             String message = "Failed to connect to the Socket Mode API endpoint. (message: " + e.getMessage() + ")";
             throw new IOException(message, e);

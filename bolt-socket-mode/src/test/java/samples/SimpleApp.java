@@ -3,10 +3,12 @@ package samples;
 import com.slack.api.bolt.App;
 import com.slack.api.bolt.AppConfig;
 import com.slack.api.bolt.socket_mode.SocketModeApp;
+import com.slack.api.methods.response.reactions.ReactionsAddResponse;
 import com.slack.api.model.Message;
 import com.slack.api.model.block.element.RichTextSectionElement;
 import com.slack.api.model.event.*;
 import com.slack.api.model.view.ViewState;
+import com.slack.api.socket_mode.SocketModeClient;
 import config.Constants;
 
 import java.util.Arrays;
@@ -344,7 +346,10 @@ public class SimpleApp {
         });
 
         String appToken = System.getenv(Constants.SLACK_SDK_TEST_SOCKET_MODE_APP_TOKEN);
-        SocketModeApp socketModeApp = new SocketModeApp(appToken, app);
+        SocketModeApp socketModeApp = new SocketModeApp(appToken, app, SocketModeClient.MessageProcessor.builder()
+                .mode(SocketModeClient.MessageProcessorMode.Default)
+                .concurrency(100)
+                .build());
         socketModeApp.start();
     }
 }
